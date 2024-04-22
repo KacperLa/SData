@@ -61,6 +61,7 @@ include_directories("${source_dir}/googletest/include"
 target_link_libraries(sdata_test
     libgtest
     libgmock
+    pthread
 )
 
 add_test(NAME test_sdata COMMAND sdata_test)

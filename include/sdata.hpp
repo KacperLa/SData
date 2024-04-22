@@ -29,9 +29,10 @@ public:
     using stype = T;
     using stype_ptr_t = T *;
 
-    SData(const std::string& mapped_file, bool isProducer) : 
+    SData(const std::string& mapped_file, int timeout, bool isProducer) : 
         mapped_file(mapped_file),
         memory_mapped(false),
+        timeout({0, timeout}),
         isProducer(isProducer)
     {
         if (openMap()) {
@@ -88,8 +89,13 @@ public:
     }
 
 
-    bool waitOnStateChange(stype_ptr_t data)
-    {
+    int waitOnStateChange(stype_ptr_t data)
+    {   
+        // return codes:
+        // 0: success
+        // 1: timeout
+        // 2: potential data corruption
+
         int current_index = shared_data->producer_futex.load(std::memory_order_acquire);
         if (futexWait(&shared_data->producer_futex, current_index))
         {
@@ -98,17 +104,18 @@ public:
                         sizeof(T));
             if ((current_index % 3) == (shared_data->producer_futex.load(std::memory_order_acquire) % 3))
             {
-                log("Buffer index potential corruption");
-                return false;
+                logError("Buffer index potential corruption");
+                return 2;
             }
             else
             {
-                return true;
+                return 0;
             }
         }
         else
         {
-            return false;
+            logError("Futex timeout occured");
+            return 1;
         }
     }
 
@@ -129,9 +136,13 @@ private:
         log("Opening memory mapped file");    
         // open the mapped memory file descriptor
         int fd;
-        // prepare the file descriptor with /tmp/
-        mapped_file = "/tmp/" + mapped_file;
 
+        // prepare the file descriptor with /tmp/
+        // Check if /tmp/ is already in the file name
+        if (mapped_file.find("/tmp/") == std::string::npos)
+        {
+            mapped_file = "/tmp/" + mapped_file;
+        }
 
         // if (isProducer)
         // {
@@ -156,7 +167,7 @@ private:
                 {
                     if (ftruncate(fd, sizeof(shared_data_t)) == -1)
                     {
-                        log("Error truncating Memmory Map");
+                        logError("Error truncating Memmory Map");
                         close(fd);
                         return true;
                     } 
@@ -191,9 +202,9 @@ private:
         if (isProducer)
         {
             shared_data->producer_futex.store(1, std::memory_order_release);
-            // shared_data->triple_buffer[0] = T();
-            // shared_data->triple_buffer[1] = T();
-            // shared_data->triple_buffer[2] = T();
+            shared_data->triple_buffer[0] = T();
+            shared_data->triple_buffer[1] = T();
+            shared_data->triple_buffer[2] = T();
         }
         return 0;
     }
@@ -208,7 +219,12 @@ private:
 
     void log(std::string event)
     {
-        std::cout << "[" << mapped_file << "] " << event << std::endl;
+        //std::cout << "[" << mapped_file << "] " << event << "\n";
+    }
+
+    void logError(std::string event)
+    {
+        std::cout << "[" << mapped_file << "] " << event << "\n";
     }
 
     bool futexWait(std::atomic<int>* addr, int val)
@@ -252,7 +268,7 @@ private:
         T triple_buffer[3];
     };
 
-    struct timespec timeout {0, 100000000}; // 100 milliseconds
+    struct timespec timeout;
 
     // shared memory
     std::string mapped_file;
