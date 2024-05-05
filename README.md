@@ -5,9 +5,11 @@ The goal of SData is to enable the distribution of info between different proces
 
 ## Things to keep in mind when deciding if this library is right for your project:
 - This library is designed for use on Linux, the library relies on linux system calls for mapping memory and waiting/waking on futexes. 
--  This library does not guarantee that every "reader" will process every update, that depends on your kernel, so ABA problems may occur. Please do your own bench marks on your system to see what is the upper limit of throughput on your system.This means that this library is most suitable for applications where you are okay with missing a message once in a while.
+- This library does not guarantee that every "reader" will process every update, that depends on your kernel, so ABA problems may occur. Please do your own bench marks to see what is the upper limit of throughput on your system.
+- This this library is most suitable for applications where you are okay with missing a message once in a while.
 Example: If you are communicating a button state, rather than publishing one or a zero, increment a counter every time a button is pressed. 
-- The included Unit Test contain a test for timing 1000 updates between a reader and a writer, play with that to get an idea of what is possible. 
+- The included Unit Test contain a test for timing 1000 updates between a reader and a writer, play with that to get an idea of what is possible.
+- This library relies on a three element circular buffer with does not provide protection against reading/writing to the same index, this rarely happens, and each read function provides a return value that can be checked for thi. 
 
 ## Run the tests
 ``` bash
@@ -19,7 +21,6 @@ make
 ```
 
 ## How to use SData
----
 Include the .hpp file
 ``` c++
 #include "lib/SData/include/sdata.hpp"
@@ -79,7 +80,6 @@ or you may ask the reader to wait for the next data update (useful when syncing 
 ```
 
 ### Directly write to buffer
----
 If you want to be fancy and minimize the number of times data is copied
 you can do the following. 
 
