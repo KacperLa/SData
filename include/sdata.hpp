@@ -128,77 +128,84 @@ public:
         futexWakeAll(&shared_data->producer_futex);
     }
 
+    static const char* getDataType() {
+        return typeid(T).name();
+    }
+
+    static T createDataInstance() {
+        return T();
+    }
 
 private:
 
     bool openMap()
     {
         log("Opening memory mapped file");    
-        // open the mapped memory file descriptor
         int fd;
 
-        // prepare the file descriptor with /tmp/
-        // Check if /tmp/ is already in the file name
         if (mapped_file.find("/tmp/") == std::string::npos)
         {
             mapped_file = "/tmp/" + mapped_file;
         }
 
-        // if (isProducer)
-        // {
-            fd = open(mapped_file.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-        // } else {
-        //     fd = open(mapped_file.c_str(), O_RDWR);
-        // }
-
+        // Open the file with appropriate permissions
+        // create if it doesn't exist
+        // open for reading and writing
+        fd = open(mapped_file.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+        
         if (fd == -1) {
             log("Error opening/creating memory-mapped file");
             return 1;
         }
 
-        // if (isProducer)
-        // {
-            // Check if file needs to be truncated
-            struct stat fileStat;
-            if (stat(mapped_file.c_str(), &fileStat) == 0)
+        // Check if file needs to be truncated
+        struct stat fileStat;
+        if (stat(mapped_file.c_str(), &fileStat) == 0)
+        {
+            off_t currentSize = fileStat.st_size;
+            if (currentSize != sizeof(shared_data_t))
             {
-                off_t currentSize = fileStat.st_size;
-                if (currentSize != sizeof(shared_data_t))
+                if (ftruncate(fd, sizeof(shared_data_t)) == -1)
                 {
-                    if (ftruncate(fd, sizeof(shared_data_t)) == -1)
-                    {
-                        logError("Error truncating Memmory Map");
-                        close(fd);
-                        return true;
-                    } 
-                    else
-                    {
-                        log("Memmory Map truncated successfully");
-                    }
-                }
+                    logError("Error truncating Memmory Map");
+                    close(fd);
+                    return true;
+                } 
                 else
                 {
-                    log("Memmory Map already at the correct size");
+                    log("Memmory Map truncated successfully");
                 }
             }
             else
             {
-                log("Error getting Memmory Map stat");
-                close(fd);
-                return true;
+                log("Memmory Map already at the correct size");
             }
-        // }
-
-        // Map the memory
-        shared_data = static_cast<shared_data_t*>(mmap(NULL, sizeof(shared_data_t), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0u));
-        if (shared_data == MAP_FAILED) {
-            log("Error mapping memory");
+        }
+        else
+        {
+            log("Error getting Memmory Map stat");
             close(fd);
             return true;
-        } else {
-            log("Memory mapped successfully");
         }
 
+        // Map the memory with appropriate permissions
+        void* mapped_mem = mmap(
+            NULL, 
+            sizeof(shared_data_t), 
+            isProducer ? (PROT_READ | PROT_WRITE) : PROT_READ, 
+            MAP_SHARED, 
+            fd, 
+            0u
+        );
+
+        shared_data = static_cast<shared_data_t*>(mapped_mem);
+        if (shared_data == MAP_FAILED) {
+            log("Error mapping memory");
+            close(fd);  // Close on error
+            return true;
+        }
+
+        // Only producer initializes the memory
         if (isProducer)
         {
             shared_data->producer_futex.store(1, std::memory_order_release);
@@ -206,6 +213,8 @@ private:
             shared_data->triple_buffer[1] = T();
             shared_data->triple_buffer[2] = T();
         }
+
+        close(fd);  // Close after successful mapping
         return 0;
     }
 
@@ -219,7 +228,7 @@ private:
 
     void log(std::string event)
     {
-        //std::cout << "[" << mapped_file << "] " << event << "\n";
+        // std::cout << "[" << mapped_file << "] " << event << "\n";
     }
 
     void logError(std::string event)
